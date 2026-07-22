@@ -108,7 +108,11 @@ router.post('/:id/location/native', async (req, res) => {
       heading: position.bearing || 0,
       capturedAt: position.time,
     });
-    if (!trip) return res.status(404).json({ error: 'Active driver trip not found' });
+    if (!trip) {
+      console.warn(`[gps] native rejected trip=${req.params.id}`);
+      return res.status(404).json({ error: 'Active driver trip not found' });
+    }
+    console.log(`[gps] native accepted trip=${req.params.id}`);
     res.status(204).send();
   } catch {
     res.status(401).json({ error: 'Unauthorized' });

@@ -17,6 +17,15 @@ const busRoutes = require('./routes/buses');
 const publicRoutes = require('./routes/public');
 
 const app = express();
+// Request-level operational diagnostics for Render logs. Do not log headers,
+// request bodies, tokens, or exact location coordinates here.
+app.use((req, res, next) => {
+  const startedAt = Date.now();
+  res.on('finish', () => {
+    console.log(`[http] ${req.method} ${req.originalUrl} → ${res.statusCode} ${Date.now() - startedAt}ms origin=${req.get('origin') || '-'}`);
+  });
+  next();
+});
 const allowedOrigins = new Set([
   ...(process.env.FRONTEND_URL || 'http://localhost:3000').split(',').map((origin) => origin.trim()),
   'http://localhost',

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react';
 import { io, Socket } from 'socket.io-client';
 import {
   fetchRoutes, fetchStops, fetchBuses, fetchMe, loginOrRegisterDemoUser,
@@ -115,6 +115,8 @@ interface AppContextType {
   addStop: (routeId: string, name: string, location: LatLng) => void;
   manualCheckInStop: (tripId: string, stopIndex: number) => void;
   emitDriverLocation: (tripId: string, lat: number, lng: number, speed: number, heading: number) => void;
+  simulationEnabled: boolean;
+  setSimulationEnabled: (enabled: boolean) => void;
   currentUser: ApiUser | null;
 }
 
@@ -190,6 +192,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [etaByTripId, setEtaByTripId] = useState<Record<string, LiveEta>>({});
   const [mounted, setMounted] = useState(false);
   const [currentUser, setCurrentUser] = useState<ApiUser | null>(null);
+  const [simulationEnabled, setSimulationEnabled] = useState(false);
 
   const socketRef = useRef<Socket | null>(null);
   // Trip ids that have received at least one real driver:location GPS ping —
@@ -374,11 +377,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentUser]);
 
-  const emitDriverLocation = (tripId: string, lat: number, lng: number, speed: number, heading: number) => {
+  const emitDriverLocation = useCallback((tripId: string, lat: number, lng: number, speed: number, heading: number) => {
     const ping = { tripId, lat, lng, speed, heading, capturedAt: new Date().toISOString() };
     if (socketRef.current?.connected) socketRef.current.emit('driver:location', ping);
     else void enqueueLocationPing(ping);
-  };
+  }, []);
 
   const toggleFavorite = (id: string) => {
     const wasFavorite = favorites.includes(id);
@@ -600,8 +603,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   // Fallback movement simulation for trips not (yet) receiving real GPS —
-  // real bus:position events always win once a trip is in realTrackedTripIds.
+  // it is deliberately opt-in; real bus:position events always win.
   useEffect(() => {
+    if (!simulationEnabled) return;
     const timer = setInterval(() => {
       setTrips(prev => {
         const updated = prev.map(trip => {
@@ -661,7 +665,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }, 4000);
 
     return () => clearInterval(timer);
-  }, [routes]);
+  }, [routes, simulationEnabled]);
 
   if (!mounted) {
     return <div className="min-h-screen bg-white"></div>;
@@ -734,6 +738,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       addStop,
       manualCheckInStop,
       emitDriverLocation,
+      simulationEnabled,
+      setSimulationEnabled,
       currentUser
     }}>
       {children}

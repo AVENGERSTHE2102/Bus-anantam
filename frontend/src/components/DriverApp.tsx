@@ -8,12 +8,21 @@ import dynamic from 'next/dynamic';
 const RealMap = dynamic(() => import('./RealMap'), { ssr: false });
 
 export const DriverApp: React.FC = () => {
-  const { routes, buses, trips, startTrip, endTrip, sendRemark, confirmConversion, theme, currentUser, emitDriverLocation, etaByTripId } = useApp();
+  const { routes, buses, trips, startTrip, endTrip, sendRemark, confirmConversion, theme, currentUser, emitDriverLocation, etaByTripId, simulationEnabled, setSimulationEnabled } = useApp();
   const [activeTab, setActiveTab] = useState<'shift' | 'remarks' | 'map' | 'history'>('shift');
   const [showConversionModal, setShowConversionModal] = useState(false);
   const [etaFrom, setEtaFrom] = useState('My Location');
   const [etaTo, setEtaTo] = useState('Phoenix Mall Stop');
   const [showEtaResult, setShowEtaResult] = useState(false);
+  const [gpsState, setGpsState] = useState<'idle' | 'starting' | 'live' | 'error'>('idle');
+  const [gpsMessage, setGpsMessage] = useState('');
+  const [lastGps, setLastGps] = useState<{ lat: number; lng: number; at: string } | null>(null);
+  const [trackingLog, setTrackingLog] = useState<string[]>([]);
+
+  const addTrackingLog = (message: string) => setTrackingLog((previous) => [
+    `${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}  ${message}`,
+    ...previous,
+  ].slice(0, 20));
 
   // Find active driver trip
   const activeTrip = trips.find(t => t.driverId === currentUser?.id && (t.status === 'active' || t.status === 'arrived'));
@@ -30,17 +39,32 @@ export const DriverApp: React.FC = () => {
   // Android uses a foreground service with a persistent notification and a
   // native upload path; PWA browsers retain their normal foreground watcher.
   useEffect(() => {
-    if (!activeTrip || activeTrip.status !== 'active') return;
+    if (!activeTrip || activeTrip.status !== 'active') {
+      setGpsState('idle');
+      return;
+    }
     let cancelled = false;
     let stopWatching: () => void = () => {};
+    setGpsState('starting');
+    setGpsMessage('Requesting a current GPS location…');
+    addTrackingLog(`Starting phone GPS for trip ${activeTrip.id.slice(-6)}`);
 
     void startDriverLocationTracking(
       activeTrip.id,
       ({ latitude, longitude, speed, heading }) => {
+        setGpsState('live');
+        setGpsMessage('Phone GPS sample received and sent to the backend');
+        setLastGps({ lat: latitude, lng: longitude, at: new Date().toISOString() });
+        addTrackingLog(`GPS ${latitude.toFixed(5)}, ${longitude.toFixed(5)} → backend`);
         const speedKmph = speed != null ? speed * 3.6 : 0;
         emitDriverLocation(activeTrip.id, latitude, longitude, speedKmph, heading || 0);
       },
-      (message) => console.error('Geolocation error:', message),
+      (message) => {
+        console.error('Geolocation error:', message);
+        setGpsState('error');
+        setGpsMessage(message);
+        addTrackingLog(`GPS error: ${message}`);
+      },
     ).then((stop) => {
       if (cancelled) stop();
       else stopWatching = stop;
@@ -50,6 +74,8 @@ export const DriverApp: React.FC = () => {
       cancelled = true;
       stopWatching();
     };
+  // activeTrip is intentionally narrowed to its stable identity/status here.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTrip?.id, activeTrip?.status, emitDriverLocation]);
 
   const handleEndTrip = () => {
@@ -144,6 +170,33 @@ export const DriverApp: React.FC = () => {
                     END TRIP
                   </button>
                 </div>
+                <div className={`rounded-xl border p-3 ${theme === 'dark' ? 'border-zinc-800 bg-zinc-900/40' : 'border-zinc-200 bg-white'}`}>
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className={`text-[10px] font-bold uppercase tracking-wider ${textMutedClass}`}>Tracking source</p>
+                      <p className={`mt-0.5 text-xs font-semibold ${gpsState === 'live' ? 'text-green-600' : gpsState === 'error' ? 'text-red-600' : textMutedClass}`}>
+                        {gpsState === 'live' ? 'Live phone GPS' : gpsState === 'starting' ? 'Waiting for GPS fix' : gpsState === 'error' ? 'GPS needs attention' : 'GPS starts with the trip'}
+                      </p>
+                    </div>
+                    <span className={`h-2.5 w-2.5 rounded-full ${gpsState === 'live' ? 'bg-green-500 animate-pulse' : gpsState === 'error' ? 'bg-red-500' : 'bg-amber-400'}`} />
+                  </div>
+                  <p className={`mt-1 text-[10px] ${textMutedClass}`}>{gpsMessage || 'Move outdoors if the first GPS fix takes a moment.'}</p>
+                  {lastGps && <p className={`mt-1 font-mono text-[10px] ${textMutedClass}`}>{lastGps.lat.toFixed(5)}, {lastGps.lng.toFixed(5)} · {new Date(lastGps.at).toLocaleTimeString()}</p>}
+                </div>
+                <label className={`flex cursor-pointer items-center justify-between rounded-xl border p-3 ${theme === 'dark' ? 'border-zinc-800 bg-zinc-900/40' : 'border-zinc-200 bg-white'}`}>
+                  <div>
+                    <p className="text-xs font-semibold">Demo route simulation</p>
+                    <p className={`mt-0.5 text-[10px] ${textMutedClass}`}>Off by default. Turn on only to test map movement without travelling.</p>
+                  </div>
+                  <input type="checkbox" checked={simulationEnabled} onChange={(event) => { setSimulationEnabled(event.target.checked); addTrackingLog(`Simulation ${event.target.checked ? 'enabled' : 'disabled'}`); }} className="h-4 w-4 accent-indigo-600" />
+                </label>
+                {simulationEnabled && <p className="text-[10px] font-semibold text-amber-600">Simulation is on. Turn it off to verify real GPS movement only.</p>}
+                <details className={`rounded-xl border p-3 ${theme === 'dark' ? 'border-zinc-800 bg-zinc-900/40' : 'border-zinc-200 bg-white'}`}>
+                  <summary className="cursor-pointer text-xs font-semibold">Tracking diagnostics ({trackingLog.length})</summary>
+                  <div className={`mt-3 max-h-32 space-y-1 overflow-y-auto font-mono text-[10px] ${textMutedClass}`}>
+                    {trackingLog.length ? trackingLog.map((entry, index) => <p key={`${entry}-${index}`}>{entry}</p>) : <p>No tracking events yet.</p>}
+                  </div>
+                </details>
               </div>
             )}
             

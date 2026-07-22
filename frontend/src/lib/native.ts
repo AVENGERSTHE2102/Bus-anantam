@@ -62,8 +62,14 @@ export async function startDriverLocationTracking(
       stale: false,
       distanceFilter: 20,
       url: nativeUploadUrl,
-    }, (_position, error) => {
+    }, (position, error) => {
       if (error) onError(error.message || 'Background location tracking failed');
+      if (position) onLocation({
+        latitude: position.latitude,
+        longitude: position.longitude,
+        speed: position.speed,
+        heading: position.bearing,
+      });
     });
     return () => { void BackgroundGeolocation.stop(); };
   }

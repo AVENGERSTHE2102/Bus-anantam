@@ -15,15 +15,21 @@ function initSockets(io) {
 
   io.on('connection', (socket) => {
     let lastLocationAt = 0;
+    console.log(`[socket] connected user=${socket.user.id} role=${socket.user.role} id=${socket.id}`);
+    socket.on('disconnect', (reason) => console.log(`[socket] disconnected id=${socket.id} reason=${reason}`));
     socket.on('subscribe:route', (routeId) => socket.join(`route:${routeId}`));
     socket.on('subscribe:admin', () => {
       if (socket.user.role === 'admin') socket.join('admin');
     });
     socket.on('driver:location', (position) => {
       const now = Date.now();
-      if (now - lastLocationAt < 750) return; // preserve 1–4s GPS updates; drop floods
+      if (now - lastLocationAt < 750) {
+        console.log(`[gps] dropped throttled socket ping trip=${position?.tripId || '-'}`);
+        return;
+      }
       lastLocationAt = now;
       recordLocation(io, { ...position, user: socket.user, capturedAt: position.capturedAt })
+        .then((trip) => console.log(`[gps] socket ${trip ? 'accepted' : 'rejected'} trip=${position?.tripId || '-'}`))
         .catch((err) => console.error('Socket location update failed:', err));
     });
   });
