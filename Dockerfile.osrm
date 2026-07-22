@@ -1,0 +1,9 @@
+# Render private-service image for BusTracker's preprocessed Dombivli road graph.
+# The graph was built with OSRM's MLD pipeline, so it is served with --algorithm mld.
+FROM ghcr.io/project-osrm/osrm-backend:latest
+
+COPY osrm-data/dombivli.osrm* /data/
+
+EXPOSE 5000
+
+CMD ["osrm-routed", "--algorithm", "mld", "--port", "5000", "/data/dombivli.osrm"]

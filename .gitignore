@@ -58,6 +58,13 @@ backend/data/
 *.pbf
 *.osrm*
 
+# The Render OSRM private service needs this Dockerfile and the compiled
+# Dombivli routing graph at Docker build time. Keep other OSRM artefacts out.
+!Dockerfile.osrm
+!osrm-data/
+osrm-data/*
+!osrm-data/dombivli.osrm*
+
 # ------------------------------------------
 # Logs & Temp Files
 # ------------------------------------------
