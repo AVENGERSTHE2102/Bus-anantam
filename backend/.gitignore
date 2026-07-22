@@ -1,0 +1,27 @@
+# ==========================================
+# Backend Git Ignore Configuration
+# ==========================================
+
+# Dependencies
+node_modules/
+
+# Environment & Secrets
+.env
+.env.*
+
+# Local Database & Storage
+data/
+
+# Logs & Temp Files
+*.log
+npm-debug.log*
+
+# OS & System Files
+.DS_Store
+.DS_Store?
+._*
+Thumbs.db
+
+# IDE Files
+.idea/
+.vscode/

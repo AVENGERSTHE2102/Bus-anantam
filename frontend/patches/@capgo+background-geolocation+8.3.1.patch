@@ -1,0 +1,79 @@
+diff --git a/node_modules/@capgo/background-geolocation/android/src/main/java/com/capgo/capacitor_background_geolocation/LocationStore.java b/node_modules/@capgo/background-geolocation/android/src/main/java/com/capgo/capacitor_background_geolocation/LocationStore.java
+index 2e19afe..68e3986 100644
+--- a/node_modules/@capgo/background-geolocation/android/src/main/java/com/capgo/capacitor_background_geolocation/LocationStore.java
++++ b/node_modules/@capgo/background-geolocation/android/src/main/java/com/capgo/capacitor_background_geolocation/LocationStore.java
+@@ -8,6 +8,7 @@ import java.io.OutputStream;
+ import java.net.HttpURLConnection;
+ import java.net.URL;
+ import java.nio.charset.StandardCharsets;
++import org.json.JSONArray;
+ import org.json.JSONObject;
+ 
+ // Persists the configuration for a native location watcher and delivers
+@@ -22,6 +23,8 @@ final class LocationStore {
+     private static final String KEY_TITLE = "title";
+     private static final String KEY_MESSAGE = "message";
+     private static final String KEY_DISTANCE_FILTER = "distanceFilter";
++    private static final String KEY_PENDING_LOCATIONS = "pendingLocations";
++    private static final int MAX_PENDING_LOCATIONS = 500;
+ 
+     private LocationStore() {}
+ 
+@@ -70,13 +73,55 @@ final class LocationStore {
+         return prefs(context).getFloat(KEY_DISTANCE_FILTER, 0f);
+     }
+ 
+-    // POSTs a single location as JSON to the configured url. Runs synchronously,
+-    // so callers must invoke it off the main thread.
++    // Persists each ping before upload. If connectivity drops, the next native
++    // location callback drains this FIFO queue in order instead of losing the
++    // bus path while the WebView is asleep.
+     static void sendLocation(Context context, JSONObject data) throws IOException {
+         String urlString = getUrl(context);
+         if (urlString == null || urlString.isEmpty()) {
+             return;
+         }
++        JSONArray pending = readPendingLocations(context);
++        pending.put(data);
++        pending = trimPendingLocations(pending);
++        savePendingLocations(context, pending);
++
++        while (pending.length() > 0) {
++            try {
++                postLocation(urlString, pending.getJSONObject(0));
++                pending.remove(0);
++                savePendingLocations(context, pending);
++            } catch (Exception error) {
++                savePendingLocations(context, pending);
++                if (error instanceof IOException) throw (IOException) error;
++                throw new IOException("Unable to deliver queued location", error);
++            }
++        }
++    }
++
++    private static JSONArray readPendingLocations(Context context) {
++        try {
++            return new JSONArray(prefs(context).getString(KEY_PENDING_LOCATIONS, "[]"));
++        } catch (Exception ignored) {
++            return new JSONArray();
++        }
++    }
++
++    private static void savePendingLocations(Context context, JSONArray pending) {
++        prefs(context).edit().putString(KEY_PENDING_LOCATIONS, pending.toString()).apply();
++    }
++
++    private static JSONArray trimPendingLocations(JSONArray pending) {
++        if (pending.length() <= MAX_PENDING_LOCATIONS) return pending;
++        JSONArray trimmed = new JSONArray();
++        int start = pending.length() - MAX_PENDING_LOCATIONS;
++        for (int index = start; index < pending.length(); index++) {
++            try { trimmed.put(pending.getJSONObject(index)); } catch (Exception ignored) {}
++        }
++        return trimmed;
++    }
++
++    private static void postLocation(String urlString, JSONObject data) throws IOException {
+         HttpURLConnection connection = null;
+         try {
+             URL url = new URL(urlString);

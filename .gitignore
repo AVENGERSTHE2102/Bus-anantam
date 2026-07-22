@@ -1,0 +1,111 @@
+# ==========================================
+# BusTracker Root Git Ignore Configuration
+# ==========================================
+
+# ------------------------------------------
+# Environment & Secrets (NEVER COMMIT)
+# ------------------------------------------
+.env
+.env.local
+.env.*.local
+.env.development
+.env.production
+.env.staging
+*.pem
+*.key
+*.crt
+
+# ------------------------------------------
+# Dependencies
+# ------------------------------------------
+node_modules/
+**/node_modules/
+.pnp/
+.pnp.js
+.yarn/install-state.gz
+
+# ------------------------------------------
+# Build & Compilation Outputs
+# ------------------------------------------
+.next/
+**/.next/
+out/
+**/out/
+build/
+**/build/
+dist/
+**/dist/
+*.tsbuildinfo
+next-env.d.ts
+
+# ------------------------------------------
+# Android & Mobile Build Artifacts
+# ------------------------------------------
+**/android/.gradle/
+**/android/.kotlin/
+**/android/build/
+**/android/app/build/
+**/android/captures/
+**/android/local.properties
+**/android/.idea/
+
+# ------------------------------------------
+# Heavy Data & Storage Files
+# ------------------------------------------
+osrm-data/
+backend/data/
+**/data/
+*.pbf
+*.osrm*
+
+# ------------------------------------------
+# Logs & Temp Files
+# ------------------------------------------
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+.tmp/
+temp/
+
+# ------------------------------------------
+# OS & System Files
+# ------------------------------------------
+.DS_Store
+.DS_Store?
+._*
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+*.stackdump
+
+# ------------------------------------------
+# IDE & Editor Configurations
+# ------------------------------------------
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+.idea/
+*.swp
+*.swo
+*.sublime-workspace
+*.sublime-project
+*~
+
+# ------------------------------------------
+# AI Agent & Workspace Local Tool Files
+# ------------------------------------------
+.agents/
+.aura/
+.claude/
+.gemini/
+
+# ------------------------------------------
+# Testing & Code Coverage
+# ------------------------------------------
+coverage/
+.nyc_output/
