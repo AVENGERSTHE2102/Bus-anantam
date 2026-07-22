@@ -198,17 +198,11 @@ export const RealMap: React.FC<RealMapProps> = ({
     if (!busMarkerRef.current) {
       const busIcon = L.divIcon({
         className: 'custom-bus-icon',
-        html: `<div class="bus-rotatable" style="position: relative; transform: rotate(${rotation}deg); transition: transform 0.4s ease;">
-                <div style="width: 28px; height: 28px; border-radius: 50%; background-color: #6366f1; border: 2.5px solid #ffffff; box-shadow: 0 0 10px rgba(99, 102, 241, 0.6); display: flex; align-items: center; justify-content: center; color: white;">
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M19 17h2c.6 0 1-.4 1-1v-3c0-.9-.7-1.7-1.5-1.9C18.7 10.6 16 10 16 10s-1.3-1.4-2.2-2.3c-.5-.4-1.1-.7-1.8-.7H5c-1.1 0-2 .9-2 2v7c0 .6.4 1 1 1h3M16 17H8"/>
-                    <circle cx="7.5" cy="17.5" r="2.5"/>
-                    <circle cx="16.5" cy="17.5" r="2.5"/>
-                  </svg>
-                </div>
+        html: `<div class="bus-rotatable" style="width: 42px; height: 56px; transform: rotate(${rotation}deg); transform-origin: center; transition: transform 0.4s ease;">
+                <img src="/bus-marker.png" alt="" draggable="false" style="display: block; width: 42px; height: 56px; filter: drop-shadow(0 2px 3px rgba(24, 24, 27, 0.45));" />
               </div>`,
-        iconSize: [28, 28],
-        iconAnchor: [14, 14]
+        iconSize: [42, 56],
+        iconAnchor: [21, 28]
       });
       busMarkerRef.current = L.marker(toCoords, { icon: busIcon }).addTo(map);
       busPosRef.current = toCoords;
