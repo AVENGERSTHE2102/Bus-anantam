@@ -30,7 +30,7 @@ export const AdminApp: React.FC = () => {
 
   const handleAddStopSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newStopName.trim()) return;
+    if (!newStopName.trim() || !selectedRoute) return;
     
     // Add simulated coordinates offset slightly from the last stop
     const lastStop = selectedRoute.stops[selectedRoute.stops.length - 1];
@@ -49,6 +49,19 @@ export const AdminApp: React.FC = () => {
   const textMutedClass = theme === 'dark' ? 'text-zinc-450' : 'text-zinc-500';
   const borderClass = theme === 'dark' ? 'border-zinc-800/60' : 'border-zinc-200';
   const highlightText = theme === 'dark' ? 'text-purple-400' : 'text-indigo-650';
+
+  // A network/CORS failure must not crash the entire admin role while route
+  // data is unavailable.
+  if (!selectedRoute) {
+    return (
+      <div className={`flex min-h-screen items-center justify-center p-6 text-center ${bgClass} ${textClass}`}>
+        <div className={`max-w-sm rounded-2xl border p-5 ${cardClass}`}>
+          <h1 className="text-lg font-bold">Fleet data is unavailable</h1>
+          <p className={`mt-2 text-sm ${textMutedClass}`}>Check the backend connection and CORS configuration, then reload this page.</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className={`flex flex-col h-full overflow-hidden relative transition-colors duration-300 ${bgClass} ${textClass}`}>
@@ -74,8 +87,8 @@ export const AdminApp: React.FC = () => {
 
             {/* Live Map */}
             <RealMap
-              stops={routes[0].stops}
-              polyline={routes[0].polyline}
+              stops={selectedRoute.stops}
+              polyline={selectedRoute.polyline}
               activeTrip={trips[0]}
               height="300px"
             />

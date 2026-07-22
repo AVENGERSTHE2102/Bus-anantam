@@ -181,6 +181,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [theme, setTheme] = useState<'light' | 'dark'>('light');
   const [routes, setRoutes] = useState<Route[]>([]);
   const [routesLoaded, setRoutesLoaded] = useState(false);
+  const [routeLoadError, setRouteLoadError] = useState(false);
   const [buses, setBuses] = useState<Bus[]>([]);
   const [favorites, setFavorites] = useState<string[]>([]);
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
@@ -247,6 +248,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         }
       } catch (err) {
         console.error('Failed to load routes/buses from backend:', err);
+        if (!cancelled) setRouteLoadError(true);
       } finally {
         if (!cancelled) setRoutesLoaded(true);
       }
@@ -669,6 +671,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return (
       <div className="flex items-center justify-center h-screen w-screen text-sm text-zinc-500 bg-white">
         Loading routes…
+      </div>
+    );
+  }
+
+  if (routeLoadError || !routes.length) {
+    return (
+      <div className="flex h-screen w-screen items-center justify-center bg-white p-6 text-center text-zinc-700">
+        <div>
+          <p className="font-semibold">Unable to load BusTracker routes.</p>
+          <p className="mt-2 text-sm text-zinc-500">Check that the backend is online and allows this app&apos;s origin, then reload.</p>
+        </div>
       </div>
     );
   }
