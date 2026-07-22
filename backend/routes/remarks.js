@@ -24,8 +24,9 @@ router.post('/trips/:id/remarks', requireAuth, requireRole('driver', 'conductor'
     location: trip.lastPosition?.location,
   });
 
-  io?.to(`route:${trip.routeId}`).emit('remark:new', remark);
-  io?.to('admin').emit('remark:new', remark);
+  const payload = { ...remark.toObject(), routeId: String(trip.routeId) };
+  io?.to(`route:${trip.routeId}`).emit('remark:new', payload);
+  io?.to('admin').emit('remark:new', payload);
   res.status(201).json(remark);
 });
 

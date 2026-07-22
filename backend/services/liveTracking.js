@@ -57,7 +57,10 @@ async function recordLocation(io, { tripId, user, lat, lng, speed, heading, capt
   trip.lowSpeedSince = speed < STALL_SPEED_KMPH ? (trip.lowSpeedSince || new Date()) : null;
   trip.gpsFreshness = 'fresh';
   trip.etaConfidence = confidenceFor(trip, Boolean(matchedCoords));
-  const checkpointArrival = checkpoint?.currentStop ? await markCheckpointArrival(trip, checkpoint.currentStop) : null;
+  // Only create a checkpoint arrival after the GPS point enters that stop's
+  // geofence. Route-polyline progress alone is used for display, never as an
+  // arrival confirmation.
+  const checkpointArrival = checkpoint?.checkpointStop ? await markCheckpointArrival(trip, checkpoint.checkpointStop) : null;
   await trip.save();
 
   io.to(`route:${trip.routeId}`).emit('bus:position', {
@@ -89,7 +92,7 @@ async function getCheckpointProgress(route, routeId, positionCoords) {
       if (distance < nearestDistance) { nearestDistance = distance; nearestStopIndex = index; }
     });
     const currentStopIndex = nearestDistance < 0.1 ? nearestStopIndex : Math.max(0, nearestStopIndex - 1);
-    return { currentStopIndex, stopsLeft: Math.max(0, stops.length - 1 - currentStopIndex), currentStop: nearestDistance < 0.075 ? stops[nearestStopIndex] : null, nextStopId: String(stops[Math.min(currentStopIndex + 1, stops.length - 1)]._id) };
+    return { currentStopIndex, stopsLeft: Math.max(0, stops.length - 1 - currentStopIndex), checkpointStop: nearestDistance <= 0.1 ? stops[nearestStopIndex] : null, nextStopId: String(stops[Math.min(currentStopIndex + 1, stops.length - 1)]._id) };
   }
 
   const nearestPolylineIndex = findNearestPolylineIndex(positionCoords, route.polyline.coordinates);
@@ -99,7 +102,18 @@ async function getCheckpointProgress(route, routeId, positionCoords) {
       currentStopIndex = index;
     }
   });
-  return { currentStopIndex, stopsLeft: Math.max(0, stops.length - 1 - currentStopIndex), currentStop: stops[currentStopIndex], nextStopId: String(stops[Math.min(currentStopIndex + 1, stops.length - 1)]._id) };
+  let nearestStopIndex = 0;
+  let nearestStopDistance = Infinity;
+  stops.forEach((stop, index) => {
+    const distance = haversineKm(positionCoords, stop.location.coordinates);
+    if (distance < nearestStopDistance) { nearestStopDistance = distance; nearestStopIndex = index; }
+  });
+  return {
+    currentStopIndex,
+    stopsLeft: Math.max(0, stops.length - 1 - currentStopIndex),
+    checkpointStop: nearestStopDistance <= 0.1 ? stops[nearestStopIndex] : null,
+    nextStopId: String(stops[Math.min(currentStopIndex + 1, stops.length - 1)]._id),
+  };
 }
 
 function findNearestPolylineIndex([lng, lat], coordinates) {

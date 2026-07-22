@@ -77,6 +77,7 @@ export interface Remark {
   location?: LatLng;
   createdAt: string;
   photoUrl?: string;
+  routeId?: string;
 }
 
 export interface Announcement {
@@ -299,6 +300,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return () => { cancelled = true; };
   }, [currentUser]);
 
+  // The session/socket can become ready before routes finish loading. Subscribe
+  // again once route ids are available so passengers receive route alerts,
+  // live positions, checkpoint arrivals, and driver remarks.
+  useEffect(() => {
+    if (!socketRef.current?.connected) return;
+    routes.forEach((route) => socketRef.current?.emit('subscribe:route', route.id));
+  }, [routes]);
+
   // Browsers use the httpOnly cookie. The packaged Android app uses its
   // encrypted WebView preference token because it is cross-origin from the API.
   useEffect(() => {
@@ -348,6 +357,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
       connectedSocket.on('trip:occupancy', ({ tripId, passengerCount, occupancyBand }) => setTrips((prev) => prev.map((trip) => trip.id === tripId ? { ...trip, passengerCount, occupancyBand } : trip)));
 
+      connectedSocket.on('checkpoint:arrival', ({ tripId, stopId }) => {
+        setTrips((prev) => prev.map((trip) => {
+          if (trip.id !== tripId) return trip;
+          const route = routes.find((candidate) => candidate.id === trip.routeId);
+          const stopIndex = route?.stops.findIndex((stop) => stop.id === String(stopId)) ?? -1;
+          return stopIndex >= 0 ? { ...trip, currentStopIndex: stopIndex, stopsLeft: Math.max(0, (route?.stops.length || 1) - 1 - stopIndex) } : trip;
+        }));
+      });
+
       connectedSocket.on('trip:conversion-suggested', ({ tripId }) => {
         setTrips((prev) => prev.map((t) => (t.id === tripId ? { ...t, status: 'arrived' } : t)));
       });
@@ -359,6 +377,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       connectedSocket.on('remark:new', (r) => {
         setRemarks((prev) => [{
           id: r._id, tripId: r.tripId, source: r.source, tag: r.tag, message: r.message,
+          routeId: r.routeId,
           location: r.location ? { lat: r.location.coordinates[1], lng: r.location.coordinates[0] } : undefined,
           createdAt: r.createdAt,
         }, ...prev]);

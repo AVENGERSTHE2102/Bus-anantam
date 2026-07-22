@@ -8,7 +8,7 @@ import { fetchStopArrivals, StopArrivalResponse } from '@/lib/api';
 const RealMap = dynamic(() => import('./RealMap'), { ssr: false });
 
 export const PassengerApp: React.FC = () => {
-  const { routes, trips, favorites, toggleFavorite, announcements, theme, etaByTripId } = useApp();
+  const { routes, trips, favorites, toggleFavorite, announcements, remarks, theme, etaByTripId } = useApp();
   const [activeTab, setActiveTab] = useState<'home' | 'routes' | 'alerts' | 'profile'>('home');
   const [selectedStop, setSelectedStop] = useState<Stop | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
@@ -371,6 +371,16 @@ export const PassengerApp: React.FC = () => {
           {activeTab === 'alerts' && (
             <div className="space-y-4 animate-fadeIn">
               <h1 className={`text-lg font-bold mb-2 ${theme === 'dark' ? 'text-white' : 'text-zinc-900'}`}>Service Announcements</h1>
+              {remarks.filter((remark) => !selectedRoute || !remark.routeId || remark.routeId === selectedRoute.id).map((remark) => (
+                <div key={remark.id} className={`rounded-2xl p-4 space-y-2 shadow-sm border ${cardClass}`}>
+                  <div className="flex items-center gap-2 text-amber-600">
+                    <ShieldAlert size={18} />
+                    <span className="text-[10px] font-bold uppercase tracking-wider">Live driver update · {remark.tag}</span>
+                  </div>
+                  <p className={`text-sm leading-relaxed ${theme === 'dark' ? 'text-zinc-300' : 'text-zinc-700'}`}>{remark.message}</p>
+                  <p className={`text-[9px] ${textMutedClass}`}>{new Date(remark.createdAt).toLocaleString()}</p>
+                </div>
+              ))}
               {announcements.map(ann => (
                 <div key={ann.id} className={`rounded-2xl p-4 space-y-3 shadow-sm border ${cardClass}`}>
                   <div className="flex items-center gap-2 text-indigo-600">
@@ -383,6 +393,7 @@ export const PassengerApp: React.FC = () => {
                   </div>
                 </div>
               ))}
+              {!remarks.length && !announcements.length && <p className={`text-sm ${textMutedClass}`}>No active service alerts.</p>}
             </div>
           )}
 
