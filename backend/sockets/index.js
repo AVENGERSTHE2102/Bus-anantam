@@ -1,6 +1,7 @@
 const jwt = require('jsonwebtoken');
 const { parseCookies } = require('../utils/cookies');
 const { recordLocation } = require('../services/liveTracking');
+const { LIVE_FLEET_ROOM, emitLiveFleetSnapshot } = require('../services/liveFleet');
 
 function initSockets(io) {
   io.use((socket, next) => {
@@ -18,6 +19,15 @@ function initSockets(io) {
     console.log(`[socket] connected user=${socket.user.id} role=${socket.user.role} id=${socket.id}`);
     socket.on('disconnect', (reason) => console.log(`[socket] disconnected id=${socket.id} reason=${reason}`));
     socket.on('subscribe:route', (routeId) => socket.join(`route:${routeId}`));
+    socket.on('subscribe:live-fleet', async () => {
+      socket.join(LIVE_FLEET_ROOM);
+      try {
+        await emitLiveFleetSnapshot(socket);
+        console.log(`[socket] live fleet subscribed id=${socket.id}`);
+      } catch (err) {
+        console.error('Failed to send live fleet snapshot:', err);
+      }
+    });
     socket.on('subscribe:admin', () => {
       if (socket.user.role === 'admin') socket.join('admin');
     });

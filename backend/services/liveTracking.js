@@ -7,6 +7,7 @@ const { osrmDurationMinutes, osrmMatchLatest } = require('../utils/osrm');
 const { snapToPolyline } = require('../utils/polyline');
 const { STALL_SPEED_KMPH, GEOFENCE_RADIUS_METERS } = require('../config/constants');
 const { syncArrivalEstimate, markCheckpointArrival, confidenceFor } = require('./operations');
+const { LIVE_FLEET_ROOM } = require('./liveFleet');
 
 const ETA_UPDATE_INTERVAL_MS = Number(process.env.ETA_UPDATE_INTERVAL_MS || 15_000);
 const lastEtaUpdateAt = new Map();
@@ -63,7 +64,10 @@ async function recordLocation(io, { tripId, user, lat, lng, speed, heading, capt
   const checkpointArrival = checkpoint?.checkpointStop ? await markCheckpointArrival(trip, checkpoint.checkpointStop) : null;
   await trip.save();
 
-  io.to(`route:${trip.routeId}`).emit('bus:position', {
+  // A passenger subscribes once to the public fleet room, not to an
+  // individual driver socket. Every connected device therefore receives each
+  // active bus in both directions.
+  io.to(LIVE_FLEET_ROOM).emit('bus:position', {
     tripId: trip._id,
     busId: trip.busId,
     lat: matchedLat,

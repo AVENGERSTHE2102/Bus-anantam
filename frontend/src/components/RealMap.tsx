@@ -9,6 +9,9 @@ interface RealMapProps {
   stops: Stop[];
   polyline?: { lat: number; lng: number }[];
   activeTrip?: Trip;
+  // Public maps pass the full live fleet. `activeTrip` remains the selected
+  // route's primary bus for the checkpoint/remaining-route treatment.
+  activeTrips?: Trip[];
   userCoords?: { lat: number; lng: number };
   height?: string;
 }
@@ -17,6 +20,7 @@ export const RealMap: React.FC<RealMapProps> = ({
   stops,
   polyline,
   activeTrip,
+  activeTrips,
   userCoords = { lat: 19.0790, lng: 72.8750 },
   height = "320px"
 }) => {
@@ -26,6 +30,8 @@ export const RealMap: React.FC<RealMapProps> = ({
   const busPosRef = useRef<[number, number] | null>(null);
   const busRotationRef = useRef(0); // accumulated (unwrapped) so CSS rotation always animates the short way
   const busAnimFrameRef = useRef<number | null>(null);
+  const fleetBusMarkersRef = useRef<Map<string, L.Marker>>(new Map());
+  const fleetBusRotationsRef = useRef<Map<string, number>>(new Map());
   const routeLineRef = useRef<L.Polyline | null>(null);
   const remainingLineRef = useRef<L.Polyline | null>(null);
   const stopMarkersRef = useRef<L.Marker[]>([]);
@@ -170,12 +176,68 @@ export const RealMap: React.FC<RealMapProps> = ({
     }
   }, [stops, polyline, theme, userCoords.lat, userCoords.lng, activeTrip?.currentStopIndex]);
 
-  // Handle live active trip updates: glide the bus marker to each new
+  // Render the public fleet independently of the selected route. This is a
+  // keyed marker map so one bus changing position never removes another bus.
+  useEffect(() => {
+    const map = leafletMap.current;
+    if (!map || !activeTrips) return;
+
+    const liveTrips = activeTrips.filter((trip) => (
+      (trip.status === 'active' || trip.status === 'arrived')
+      && Number.isFinite(trip.currentLat) && Number.isFinite(trip.currentLng)
+    ));
+    const visibleIds = new Set(liveTrips.map((trip) => trip.id));
+
+    fleetBusMarkersRef.current.forEach((marker, tripId) => {
+      if (!visibleIds.has(tripId)) {
+        marker.remove();
+        fleetBusMarkersRef.current.delete(tripId);
+        fleetBusRotationsRef.current.delete(tripId);
+      }
+    });
+
+    liveTrips.forEach((trip) => {
+      const point: [number, number] = [trip.currentLat, trip.currentLng];
+      const previousRotation = fleetBusRotationsRef.current.get(trip.id) || 0;
+      const previousRawHeading = previousRotation % 360;
+      const delta = ((trip.heading - previousRawHeading + 540) % 360) - 180;
+      const rotation = previousRotation + delta;
+      fleetBusRotationsRef.current.set(trip.id, rotation);
+
+      const existingMarker = fleetBusMarkersRef.current.get(trip.id);
+      if (existingMarker) {
+        existingMarker.setLatLng(point);
+        const rotatable = existingMarker.getElement()?.querySelector<HTMLDivElement>('.bus-rotatable');
+        if (rotatable) rotatable.style.transform = `rotate(${rotation}deg)`;
+        return;
+      }
+
+      const busIcon = L.divIcon({
+        className: 'custom-bus-icon',
+        html: `<div class="bus-rotatable" style="width: 42px; height: 56px; transform: rotate(${rotation}deg); transform-origin: center; transition: transform 0.4s ease;">
+                <img src="/bus-marker.png" alt="" draggable="false" style="display: block; width: 42px; height: 56px; filter: drop-shadow(0 2px 3px rgba(24, 24, 27, 0.45));" />
+              </div>`,
+        iconSize: [42, 56],
+        iconAnchor: [21, 28],
+      });
+      const marker = L.marker(point, { icon: busIcon })
+        .bindTooltip(`Live bus · ${trip.occupancyBand || 'low'} occupancy`, { direction: 'top' })
+        .addTo(map);
+      fleetBusMarkersRef.current.set(trip.id, marker);
+    });
+
+    return () => undefined;
+  }, [activeTrips]);
+
+  // Handle a selected route's primary bus: glide the bus marker to each new
   // position/heading (Uber/Rapido-style) instead of snapping instantly, and
   // dim the traveled portion of the route behind it.
   useEffect(() => {
     const map = leafletMap.current;
-    if (!map || !activeTrip) {
+    // When fleet markers are present, this legacy single marker would create
+    // a duplicate for the selected bus. The route overlay still uses the
+    // selected trip below, but all buses are rendered by the keyed fleet map.
+    if (!map || activeTrips || !activeTrip) {
       busMarkerRef.current?.remove();
       busMarkerRef.current = null;
       busPosRef.current = null;
@@ -261,7 +323,12 @@ export const RealMap: React.FC<RealMapProps> = ({
     return () => {
       if (busAnimFrameRef.current) cancelAnimationFrame(busAnimFrameRef.current);
     };
-  }, [activeTrip?.currentLat, activeTrip?.currentLng, activeTrip?.heading, polyline, stops, theme]);
+  }, [activeTrip?.currentLat, activeTrip?.currentLng, activeTrip?.heading, activeTrips, polyline, stops, theme]);
+
+  useEffect(() => () => {
+    fleetBusMarkersRef.current.forEach((marker) => marker.remove());
+    fleetBusMarkersRef.current.clear();
+  }, []);
 
   // CSS injection for keyframes ping
   useEffect(() => {

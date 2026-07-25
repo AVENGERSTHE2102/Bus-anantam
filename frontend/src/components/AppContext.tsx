@@ -196,6 +196,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [simulationEnabled, setSimulationEnabled] = useState(false);
 
   const socketRef = useRef<Socket | null>(null);
+  // Socket callbacks live longer than a render. Keep current route metadata in
+  // a ref so a reconnect never subscribes with the initial empty route list.
+  const routesRef = useRef<Route[]>([]);
+  routesRef.current = routes;
   // Trip ids that have received at least one real driver:location GPS ping —
   // the movement-simulation effect skips these so real data always wins.
   const realTrackedTripIds = useRef<Set<string>>(new Set());
@@ -326,15 +330,23 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       socketRef.current = connectedSocket;
 
       connectedSocket.on('connect', () => {
-        routes.forEach((r) => connectedSocket.emit('subscribe:route', r.id));
+        routesRef.current.forEach((r) => connectedSocket.emit('subscribe:route', r.id));
+        connectedSocket.emit('subscribe:live-fleet');
         if (currentUser.role === 'admin') connectedSocket.emit('subscribe:admin');
         void drainLocationPings((ping) => connectedSocket.emit('driver:location', ping));
+      });
+
+      // The snapshot is emitted immediately after subscribing and again when
+      // dispatch starts/ends a trip. It makes a second passenger phone show
+      // all already-moving buses without waiting for its next GPS ping.
+      connectedSocket.on('fleet:snapshot', ({ trips: fleetTrips }: { trips: ApiTrip[] }) => {
+        setTrips(fleetTrips.map((trip) => toTrip(trip, routesRef.current)));
       });
 
       connectedSocket.on('bus:position', ({ tripId, lat, lng, speed, heading, currentStopIndex, stopsLeft, occupancyBand, delayMinutes, gpsFreshness, etaConfidence }) => {
         realTrackedTripIds.current.add(tripId);
         setTrips((prev) => prev.map((t) => (
-          t.id === tripId ? {
+          t.id === String(tripId) ? {
             ...t,
             currentLat: lat,
             currentLng: lng,

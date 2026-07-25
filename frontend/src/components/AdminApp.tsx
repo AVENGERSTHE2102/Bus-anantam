@@ -89,7 +89,8 @@ export const AdminApp: React.FC = () => {
             <RealMap
               stops={selectedRoute.stops}
               polyline={selectedRoute.polyline}
-              activeTrip={trips[0]}
+              activeTrip={trips.find((trip) => trip.routeId === selectedRoute.id)}
+              activeTrips={trips.filter((trip) => trip.status === 'active' || trip.status === 'arrived')}
               height="300px"
             />
 

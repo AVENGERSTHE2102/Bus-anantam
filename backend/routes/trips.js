@@ -11,6 +11,7 @@ const { snapToPolyline } = require('../utils/polyline');
 const { recordLocation } = require('../services/liveTracking');
 const ScheduledTrip = require('../models/ScheduledTrip');
 const Bus = require('../models/Bus');
+const { LIVE_FLEET_ROOM, emitLiveFleetSnapshot } = require('../services/liveFleet');
 
 const router = express.Router();
 
@@ -41,6 +42,9 @@ router.post('/start', requireAuth, requireRole('driver', 'conductor'), async (re
   });
   await Bus.findByIdAndUpdate(busId, { status: 'active' });
   if (scheduledTrip) await ScheduledTrip.findByIdAndUpdate(scheduledTrip._id, { status: 'active', liveTripId: trip._id, busId, driverId: trip.driverId, conductorId: trip.conductorId });
+  // An existing passenger map must immediately learn about newly dispatched
+  // buses; position updates alone cannot create a trip it has never seen.
+  emitLiveFleetSnapshot(io.to(LIVE_FLEET_ROOM)).catch((err) => console.error('Live fleet start sync failed:', err));
   res.status(201).json(trip);
 });
 
@@ -53,11 +57,13 @@ router.post('/:id/end', requireAuth, requireRole('driver', 'conductor'), async (
   if (!trip) return res.status(404).json({ error: 'Trip not found' });
   await Bus.findByIdAndUpdate(trip.busId, { status: 'idle' });
   if (trip.scheduledTripId) await ScheduledTrip.findByIdAndUpdate(trip.scheduledTripId, { status: 'completed' });
+  emitLiveFleetSnapshot(io.to(LIVE_FLEET_ROOM)).catch((err) => console.error('Live fleet end sync failed:', err));
   res.json(trip);
 });
 
 router.get('/active', async (req, res) => {
-  res.json(await Trip.find({ status: { $in: ['active', 'arrived'] } }).select('busId routeId status lastPosition checkpointHistory occupancyBand delayMinutes etaConfidence gpsFreshness'));
+  const { getActiveFleetSnapshot } = require('../services/liveFleet');
+  res.json(await getActiveFleetSnapshot());
 });
 
 router.patch('/:id/occupancy', requireAuth, requireRole('conductor', 'driver'), async (req, res) => {
