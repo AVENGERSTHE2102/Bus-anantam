@@ -75,6 +75,10 @@ export const DriverApp: React.FC = () => {
   }, [selectedScheduledTrip?.busId, readyBuses, selectedBusId]);
 
   const handleStartTrip = async () => {
+    if (!currentUser || currentUser.role !== 'driver') {
+      setScheduleMessage('Driver sign-in is still being prepared. Please wait a moment and try again.');
+      return;
+    }
     const route = routes.find((item) => item.id === selectedRouteId);
     if (!route || !selectedScheduledTrip || !selectedBusId) {
       setScheduleMessage('Choose a route, timetable departure, and ready bus first.');
@@ -235,10 +239,10 @@ export const DriverApp: React.FC = () => {
                 </div>
                 <button 
                   onClick={handleStartTrip}
-                  disabled={startingTrip || !selectedScheduledTrip || !selectedBusId}
+                  disabled={startingTrip || !selectedScheduledTrip || !selectedBusId || currentUser?.role !== 'driver'}
                   className="px-6 py-3 rounded-xl bg-green-600 hover:bg-green-700 disabled:cursor-not-allowed disabled:opacity-50 text-white font-bold text-xs tracking-wider transition shadow-sm"
                 >
-                  {startingTrip ? 'STARTING…' : 'START SCHEDULED TRIP'}
+                  {startingTrip ? 'STARTING…' : currentUser?.role !== 'driver' ? 'SIGNING IN AS DRIVER…' : 'START SCHEDULED TRIP'}
                 </button>
               </div>
             ) : (

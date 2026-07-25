@@ -7,12 +7,16 @@ function requireAuth(req, res, next) {
     ? header.slice(7)
     : parseCookies(req.headers.cookie).token;
 
-  if (!token) return res.status(401).json({ error: 'Unauthorized' });
+  if (!token) {
+    console.warn(`[auth] missing token ${req.method} ${req.originalUrl}`);
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
 
   try {
     req.user = jwt.verify(token, process.env.JWT_SECRET);
     next();
   } catch {
+    console.warn(`[auth] invalid or expired token ${req.method} ${req.originalUrl}`);
     res.status(401).json({ error: 'Unauthorized' });
   }
 }
