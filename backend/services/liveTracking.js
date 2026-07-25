@@ -7,7 +7,7 @@ const { osrmDurationMinutes, osrmMatchLatest } = require('../utils/osrm');
 const { snapToPolyline } = require('../utils/polyline');
 const { STALL_SPEED_KMPH, GEOFENCE_RADIUS_METERS } = require('../config/constants');
 const { syncArrivalEstimate, markCheckpointArrival, confidenceFor } = require('./operations');
-const { LIVE_FLEET_ROOM } = require('./liveFleet');
+const { LIVE_FLEET_ROOM, emitLiveFleetSnapshot } = require('./liveFleet');
 
 const ETA_UPDATE_INTERVAL_MS = Number(process.env.ETA_UPDATE_INTERVAL_MS || 15_000);
 const lastEtaUpdateAt = new Map();
@@ -38,6 +38,7 @@ async function recordLocation(io, { tripId, user, lat, lng, speed, heading, capt
   if (!trip || String(trip.driverId) !== String(user.id) || trip.status !== 'active') return null;
   if (![lat, lng, speed, heading].every(Number.isFinite)) return null;
 
+  const wasNotLive = !trip.lastPosition?.recordedAt;
   const trail = addGpsSample(tripId, { lat, lng, capturedAt });
   const matchedCoords = await osrmMatchLatest(trail);
   // OSRM can be unavailable or reject a sparse/noisy trace. In that case keep
@@ -63,6 +64,11 @@ async function recordLocation(io, { tripId, user, lat, lng, speed, heading, capt
   // arrival confirmation.
   const checkpointArrival = checkpoint?.checkpointStop ? await markCheckpointArrival(trip, checkpoint.checkpointStop) : null;
   await trip.save();
+
+  // The first accepted GPS fix promotes an active shift to a passenger-visible
+  // live vehicle. Do this before its position event so new devices can create
+  // the marker from the trip snapshot instead of guessing a route origin.
+  if (wasNotLive) await emitLiveFleetSnapshot(io.to(LIVE_FLEET_ROOM));
 
   // A passenger subscribes once to the public fleet room, not to an
   // individual driver socket. Every connected device therefore receives each

@@ -66,6 +66,9 @@ export interface Trip {
   delayMinutes?: number;
   etaConfidence?: 'high' | 'medium' | 'limited';
   gpsFreshness?: 'fresh' | 'aging' | 'stale' | 'unknown';
+  // True only after the backend has accepted a recent real device location.
+  // Active/scheduled alone is deliberately not enough to put a bus on a map.
+  hasLiveLocation: boolean;
 }
 
 export interface Remark {
@@ -107,7 +110,7 @@ interface AppContextType {
   announcements: Announcement[];
   favorites: string[]; // route IDs or stop IDs
   toggleFavorite: (id: string) => void;
-  startTrip: (busId: string, routeId: string, conductorId: string, driverId: string) => Trip;
+  startTrip: (busId: string, routeId: string, conductorId: string, driverId: string, scheduledTripId: string) => Promise<Trip>;
   endTrip: (tripId: string) => void;
   sendRemark: (tripId: string, tag: Remark['tag'], message: string, photoUrl?: string) => void;
   savePassengerCount: (tripId: string, count: number) => void;
@@ -176,6 +179,7 @@ function toTrip(apiTrip: ApiTrip, routes: Route[]): Trip {
     currentLat: lat, currentLng: lng, speedKmph: apiTrip.lastPosition?.speedKmph || 0, heading: apiTrip.lastPosition?.heading || 0,
     currentStopIndex: Math.max(0, checkpointCount - 1), stopsLeft: Math.max(0, (route?.stops.length || 0) - checkpointCount),
     occupancyBand: apiTrip.occupancyBand, delayMinutes: apiTrip.delayMinutes, etaConfidence: apiTrip.etaConfidence, gpsFreshness: apiTrip.gpsFreshness,
+    hasLiveLocation: Boolean(apiTrip.lastPosition?.location && apiTrip.lastPosition?.recordedAt),
   };
 }
 
@@ -340,7 +344,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       // dispatch starts/ends a trip. It makes a second passenger phone show
       // all already-moving buses without waiting for its next GPS ping.
       connectedSocket.on('fleet:snapshot', ({ trips: fleetTrips }: { trips: ApiTrip[] }) => {
-        setTrips(fleetTrips.map((trip) => toTrip(trip, routesRef.current)));
+        const liveFleet = fleetTrips.map((trip) => toTrip(trip, routesRef.current));
+        const liveIds = new Set(liveFleet.map((trip) => trip.id));
+        setTrips((previous) => {
+          // Preserve active shifts that have not sent GPS yet for the driver
+          // and conductor views, but mark any missing old location as stale so
+          // it disappears from public maps.
+          const retained = previous
+            .filter((trip) => !liveIds.has(trip.id))
+            .map((trip) => trip.hasLiveLocation ? { ...trip, hasLiveLocation: false, gpsFreshness: 'stale' as const } : trip);
+          return [...retained, ...liveFleet];
+        });
       });
 
       connectedSocket.on('bus:position', ({ tripId, lat, lng, speed, heading, currentStopIndex, stopsLeft, occupancyBand, delayMinutes, gpsFreshness, etaConfidence }) => {
@@ -356,6 +370,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             ...(typeof stopsLeft === 'number' ? { stopsLeft } : {}),
             ...(occupancyBand ? { occupancyBand } : {}), ...(typeof delayMinutes === 'number' ? { delayMinutes } : {}),
             ...(gpsFreshness ? { gpsFreshness } : {}), ...(etaConfidence ? { etaConfidence } : {}),
+            hasLiveLocation: true,
           } : t
         )));
       });
@@ -437,7 +452,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   };
 
-  const startTrip = (busId: string, routeId: string, conductorId: string, driverId: string) => {
+  const startTrip = async (busId: string, routeId: string, conductorId: string, driverId: string, scheduledTripId: string) => {
     const route = routes.find(r => r.id === routeId);
     const fallbackTrip: Trip = {
       id: `trip-${Date.now()}`,
@@ -453,7 +468,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       speedKmph: 25,
       heading: 0,
       currentStopIndex: 0,
-      stopsLeft: route?.stops.length || 0
+      stopsLeft: route?.stops.length || 0,
+      hasLiveLocation: false,
     };
 
     const commit = (trip: Trip) => {
@@ -469,15 +485,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       });
     };
 
-    if (MONGO_ID_RE.test(busId) && MONGO_ID_RE.test(routeId)) {
-      startTripApi(busId, routeId, conductorId)
-        .then((apiTrip) => commit({ ...fallbackTrip, id: apiTrip._id, driverId: apiTrip.driverId }))
-        .catch((err) => { console.error('Failed to start trip on backend, using local-only trip:', err); commit(fallbackTrip); });
-    } else {
-      commit(fallbackTrip);
+    if (!MONGO_ID_RE.test(busId) || !MONGO_ID_RE.test(routeId) || !MONGO_ID_RE.test(scheduledTripId)) {
+      throw new Error('Select a valid scheduled departure and ready bus before starting.');
     }
-
-    return fallbackTrip;
+    // Do not manufacture a local trip: an actual backend trip linked to a
+    // timetable slot is required before driver GPS can become passenger-live.
+    const apiTrip = await startTripApi(busId, routeId, conductorId, scheduledTripId);
+    const trip = { ...fallbackTrip, ...toTrip(apiTrip, routes) };
+    commit(trip);
+    return trip;
   };
 
   const endTrip = (tripId: string) => {
@@ -558,6 +574,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             heading: 0,
             currentStopIndex: 0,
             stopsLeft: nextRoute?.stops.length || 0,
+            hasLiveLocation: false,
           };
           setTrips(prev => {
             const next = [...prev.map(t => t.id === tripId ? { ...t, status: 'completed' as const, endedAt: new Date().toISOString() } : t), newTrip];
@@ -586,7 +603,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       speedKmph: 30,
       heading: 0,
       currentStopIndex: 0,
-      stopsLeft: nextRoute.stops.length
+      stopsLeft: nextRoute.stops.length,
+      hasLiveLocation: false,
     };
 
     setTrips(prev => {

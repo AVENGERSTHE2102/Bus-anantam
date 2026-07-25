@@ -4,8 +4,13 @@ import React, { useState, useEffect } from 'react';
 import { Play, Square, AlertCircle, History, Map, ArrowRightLeft, MessageSquare, Compass } from 'lucide-react';
 import { useApp } from './AppContext';
 import { startDriverLocationTracking } from '@/lib/native';
+import { ApiScheduledTrip, fetchRouteSchedule } from '@/lib/api';
 import dynamic from 'next/dynamic';
 const RealMap = dynamic(() => import('./RealMap'), { ssr: false });
+
+function indiaDateToday() {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(new Date());
+}
 
 export const DriverApp: React.FC = () => {
   const { routes, buses, trips, startTrip, endTrip, sendRemark, confirmConversion, theme, currentUser, emitDriverLocation, etaByTripId, simulationEnabled, setSimulationEnabled } = useApp();
@@ -18,6 +23,13 @@ export const DriverApp: React.FC = () => {
   const [gpsMessage, setGpsMessage] = useState('');
   const [lastGps, setLastGps] = useState<{ lat: number; lng: number; at: string } | null>(null);
   const [trackingLog, setTrackingLog] = useState<string[]>([]);
+  const [selectedRouteId, setSelectedRouteId] = useState('');
+  const [scheduleDate, setScheduleDate] = useState(indiaDateToday);
+  const [scheduledTrips, setScheduledTrips] = useState<ApiScheduledTrip[]>([]);
+  const [selectedScheduledTripId, setSelectedScheduledTripId] = useState('');
+  const [selectedBusId, setSelectedBusId] = useState('');
+  const [scheduleMessage, setScheduleMessage] = useState('');
+  const [startingTrip, setStartingTrip] = useState(false);
 
   const addTrackingLog = (message: string) => setTrackingLog((previous) => [
     `${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}  ${message}`,
@@ -28,12 +40,56 @@ export const DriverApp: React.FC = () => {
   const activeTrip = trips.find(t => t.driverId === currentUser?.id && (t.status === 'active' || t.status === 'arrived'));
   const liveEta = activeTrip ? etaByTripId[activeTrip.id] : undefined;
 
-  const handleStartTrip = () => {
-    const bus = buses[0];
-    const route = routes[0];
-    if (!bus || !route) return;
-    startTrip(bus.id, route.id, '', currentUser?.id || 'demo-driver');
-    setActiveTab('remarks');
+  useEffect(() => {
+    if (!selectedRouteId && routes[0]) setSelectedRouteId(routes[0].id);
+  }, [routes, selectedRouteId]);
+
+  useEffect(() => {
+    if (!selectedRouteId) return;
+    let cancelled = false;
+    setScheduleMessage('Loading timetable…');
+    void fetchRouteSchedule(selectedRouteId, scheduleDate)
+      .then((items) => {
+        if (cancelled) return;
+        const available = items.filter((item) => item.status === 'scheduled');
+        setScheduledTrips(available);
+        setSelectedScheduledTripId((current) => available.some((item) => item._id === current) ? current : available[0]?._id || '');
+        setScheduleMessage(available.length ? '' : 'No dispatchable departures for this date.');
+      })
+      .catch((error) => {
+        console.error('Failed to load timetable:', error);
+        if (!cancelled) { setScheduledTrips([]); setSelectedScheduledTripId(''); setScheduleMessage('Could not load the timetable. Check backend connection.'); }
+      });
+    return () => { cancelled = true; };
+  }, [selectedRouteId, scheduleDate]);
+
+  const selectedScheduledTrip = scheduledTrips.find((trip) => trip._id === selectedScheduledTripId);
+  const readyBuses = buses.filter((bus) => bus.status === 'idle');
+
+  useEffect(() => {
+    if (selectedScheduledTrip?.busId) {
+      setSelectedBusId(selectedScheduledTrip.busId);
+    } else if (!readyBuses.some((bus) => bus.id === selectedBusId)) {
+      setSelectedBusId(readyBuses[0]?.id || '');
+    }
+  }, [selectedScheduledTrip?.busId, readyBuses, selectedBusId]);
+
+  const handleStartTrip = async () => {
+    const route = routes.find((item) => item.id === selectedRouteId);
+    if (!route || !selectedScheduledTrip || !selectedBusId) {
+      setScheduleMessage('Choose a route, timetable departure, and ready bus first.');
+      return;
+    }
+    setStartingTrip(true);
+    setScheduleMessage('');
+    try {
+      await startTrip(selectedBusId, route.id, '', currentUser?.id || 'demo-driver', selectedScheduledTrip._id);
+      setActiveTab('remarks');
+    } catch (error) {
+      setScheduleMessage(error instanceof Error ? error.message : 'Could not start this scheduled trip.');
+    } finally {
+      setStartingTrip(false);
+    }
   };
 
   // Android uses a foreground service with a persistent notification and a
@@ -147,13 +203,42 @@ export const DriverApp: React.FC = () => {
                 </div>
                 <div>
                   <h3 className={`font-bold text-base ${theme === 'dark' ? 'text-white' : 'text-zinc-900'}`}>Ready for your shift?</h3>
-                  <p className={`text-xs max-w-xs mx-auto mt-1 ${textMutedClass}`}>Select Route 221 to start live location sharing and updates for passengers.</p>
+                  <p className={`text-xs max-w-xs mx-auto mt-1 ${textMutedClass}`}>Start the exact published timetable departure. Passenger tracking begins after the first real GPS fix.</p>
+                </div>
+                <div className="space-y-3 text-left">
+                  <div>
+                    <label className={`mb-1 block text-[10px] font-bold uppercase tracking-wider ${textMutedClass}`}>Route</label>
+                    <select value={selectedRouteId} onChange={(event) => setSelectedRouteId(event.target.value)} className={`w-full rounded-xl border px-3 py-2.5 text-sm ${theme === 'dark' ? 'border-zinc-800 bg-zinc-900 text-white' : 'border-zinc-200 bg-white text-zinc-900'}`}>
+                      {routes.map((route) => <option key={route.id} value={route.id}>{route.name}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className={`mb-1 block text-[10px] font-bold uppercase tracking-wider ${textMutedClass}`}>Operating date</label>
+                    <input type="date" value={scheduleDate} onChange={(event) => setScheduleDate(event.target.value)} className={`w-full rounded-xl border px-3 py-2.5 text-sm ${theme === 'dark' ? 'border-zinc-800 bg-zinc-900 text-white' : 'border-zinc-200 bg-white text-zinc-900'}`} />
+                  </div>
+                  <div>
+                    <label className={`mb-1 block text-[10px] font-bold uppercase tracking-wider ${textMutedClass}`}>Published departure</label>
+                    <select value={selectedScheduledTripId} onChange={(event) => setSelectedScheduledTripId(event.target.value)} disabled={!scheduledTrips.length} className={`w-full rounded-xl border px-3 py-2.5 text-sm disabled:opacity-50 ${theme === 'dark' ? 'border-zinc-800 bg-zinc-900 text-white' : 'border-zinc-200 bg-white text-zinc-900'}`}>
+                      {!scheduledTrips.length && <option value="">No available departure</option>}
+                      {scheduledTrips.map((trip) => <option key={trip._id} value={trip._id}>{new Date(trip.plannedDepartureAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}{trip.busId ? ' · assigned bus' : ''}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className={`mb-1 block text-[10px] font-bold uppercase tracking-wider ${textMutedClass}`}>Bus</label>
+                    <select value={selectedBusId} onChange={(event) => setSelectedBusId(event.target.value)} disabled={!readyBuses.length || Boolean(selectedScheduledTrip?.busId)} className={`w-full rounded-xl border px-3 py-2.5 text-sm disabled:opacity-50 ${theme === 'dark' ? 'border-zinc-800 bg-zinc-900 text-white' : 'border-zinc-200 bg-white text-zinc-900'}`}>
+                      {!readyBuses.length && <option value="">No ready buses</option>}
+                      {readyBuses.map((bus) => <option key={bus.id} value={bus.id}>{bus.registrationNumber}</option>)}
+                    </select>
+                  </div>
+                  {selectedScheduledTrip && <p className={`text-[10px] ${textMutedClass}`}>Selected slot: {new Date(selectedScheduledTrip.plannedDepartureAt).toLocaleString([], { weekday: 'short', hour: '2-digit', minute: '2-digit' })}</p>}
+                  {scheduleMessage && <p className="text-xs font-medium text-amber-600">{scheduleMessage}</p>}
                 </div>
                 <button 
                   onClick={handleStartTrip}
-                  className="px-6 py-3 rounded-xl bg-green-600 hover:bg-green-700 text-white font-bold text-xs tracking-wider transition shadow-sm"
+                  disabled={startingTrip || !selectedScheduledTrip || !selectedBusId}
+                  className="px-6 py-3 rounded-xl bg-green-600 hover:bg-green-700 disabled:cursor-not-allowed disabled:opacity-50 text-white font-bold text-xs tracking-wider transition shadow-sm"
                 >
-                  START TRIP
+                  {startingTrip ? 'STARTING…' : 'START SCHEDULED TRIP'}
                 </button>
               </div>
             ) : (

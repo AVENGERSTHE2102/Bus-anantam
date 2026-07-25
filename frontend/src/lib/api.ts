@@ -55,6 +55,18 @@ export interface ApiTrip {
   checkpointHistory?: { stopId: string; arrivedAt: string }[];
 }
 
+export interface ApiScheduledTrip {
+  _id: string;
+  routeId: string;
+  operatingDate: string;
+  plannedDepartureAt: string;
+  busId?: string | null;
+  driverId?: string | null;
+  conductorId?: string | null;
+  status: 'scheduled' | 'active' | 'arrived' | 'completed' | 'cancelled' | 'missed';
+  cancellationReason?: string | null;
+}
+
 export interface StopArrivalResponse {
   live: { tripId: string; busId: string; etaMinutes: number; occupancyBand: 'low' | 'moderate' | 'full'; delayMinutes: number; confidence: 'high' | 'medium' | 'limited' }[];
   timetable: { scheduledTripId: string; status: string; plannedAt: string; cancellationReason?: string }[];
@@ -93,6 +105,10 @@ export async function fetchBuses(): Promise<ApiBus[]> {
 }
 
 export async function fetchActiveTrips(): Promise<ApiTrip[]> { return request('/trips/active'); }
+export async function fetchRouteSchedule(routeId: string, date?: string): Promise<ApiScheduledTrip[]> {
+  const query = date ? `?date=${encodeURIComponent(date)}` : '';
+  return request(`/public/routes/${routeId}/schedule${query}`);
+}
 export async function fetchStopArrivals(stopId: string): Promise<StopArrivalResponse> { return request(`/public/stops/${stopId}/arrivals`); }
 export async function updateOccupancy(tripId: string, passengerCount: number): Promise<ApiTrip> {
   return request(`/trips/${tripId}/occupancy`, { method: 'PATCH', body: JSON.stringify({ passengerCount }) });
@@ -135,8 +151,8 @@ export async function loginOrRegisterDemoUser(name: string, phone: string, role:
   }
 }
 
-export async function startTrip(busId: string, routeId: string, conductorId?: string): Promise<ApiTrip> {
-  return request('/trips/start', { method: 'POST', body: JSON.stringify({ busId, routeId, conductorId }) });
+export async function startTrip(busId: string, routeId: string, conductorId?: string, scheduledTripId?: string): Promise<ApiTrip> {
+  return request('/trips/start', { method: 'POST', body: JSON.stringify({ busId, routeId, conductorId, scheduledTripId }) });
 }
 
 export async function endTrip(tripId: string): Promise<ApiTrip> {

@@ -24,24 +24,24 @@ function setIo(socketIoInstance) {
 
 router.post('/start', requireAuth, requireRole('driver', 'conductor'), async (req, res) => {
   const { busId, routeId, conductorId, scheduledTripId } = req.body;
+  if (!scheduledTripId) return res.status(422).json({ error: 'Select a scheduled departure before starting a trip' });
   const bus = await Bus.findById(busId);
   if (!bus) return res.status(404).json({ error: 'Bus not found' });
   if (bus.status === 'maintenance' || bus.status === 'unavailable' || bus.readiness !== 'ready') return res.status(409).json({ error: 'Bus is not ready for service' });
-  let scheduledTrip = null;
-  if (scheduledTripId) {
-    scheduledTrip = await ScheduledTrip.findById(scheduledTripId);
-    if (!scheduledTrip || String(scheduledTrip.routeId) !== String(routeId) || scheduledTrip.status !== 'scheduled') return res.status(409).json({ error: 'Scheduled departure is not available' });
-  }
+  const scheduledTrip = await ScheduledTrip.findById(scheduledTripId);
+  if (!scheduledTrip || String(scheduledTrip.routeId) !== String(routeId) || scheduledTrip.status !== 'scheduled') return res.status(409).json({ error: 'Scheduled departure is not available' });
+  if (scheduledTrip.busId && String(scheduledTrip.busId) !== String(busId)) return res.status(409).json({ error: 'This departure is assigned to another bus' });
+  if (scheduledTrip.driverId && scheduledTrip.driverId !== req.user.id) return res.status(403).json({ error: 'This departure is assigned to another driver' });
   const trip = await Trip.create({
     busId,
     routeId,
     driverId: req.user.role === 'driver' ? req.user.id : req.body.driverId,
     conductorId: req.user.role === 'conductor' ? req.user.id : conductorId,
     status: 'active',
-    scheduledTripId: scheduledTrip?._id || null,
+    scheduledTripId: scheduledTrip._id,
   });
   await Bus.findByIdAndUpdate(busId, { status: 'active' });
-  if (scheduledTrip) await ScheduledTrip.findByIdAndUpdate(scheduledTrip._id, { status: 'active', liveTripId: trip._id, busId, driverId: trip.driverId, conductorId: trip.conductorId });
+  await ScheduledTrip.findByIdAndUpdate(scheduledTrip._id, { status: 'active', liveTripId: trip._id, busId, driverId: trip.driverId, conductorId: trip.conductorId });
   // An existing passenger map must immediately learn about newly dispatched
   // buses; position updates alone cannot create a trip it has never seen.
   emitLiveFleetSnapshot(io.to(LIVE_FLEET_ROOM)).catch((err) => console.error('Live fleet start sync failed:', err));
@@ -62,8 +62,10 @@ router.post('/:id/end', requireAuth, requireRole('driver', 'conductor'), async (
 });
 
 router.get('/active', async (req, res) => {
-  const { getActiveFleetSnapshot } = require('../services/liveFleet');
-  res.json(await getActiveFleetSnapshot());
+  // Operations views also need active trips that are still waiting for their
+  // first GPS fix. Passenger maps use the separate live-fleet snapshot.
+  res.json(await Trip.find({ status: { $in: ['active', 'arrived'] } })
+    .select('busId routeId driverId conductorId status startedAt endedAt lastPosition checkpointHistory passengerCount occupancyBand delayMinutes etaConfidence gpsFreshness'));
 });
 
 router.patch('/:id/occupancy', requireAuth, requireRole('conductor', 'driver'), async (req, res) => {

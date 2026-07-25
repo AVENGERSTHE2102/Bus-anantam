@@ -90,7 +90,7 @@ export const AdminApp: React.FC = () => {
               stops={selectedRoute.stops}
               polyline={selectedRoute.polyline}
               activeTrip={trips.find((trip) => trip.routeId === selectedRoute.id)}
-              activeTrips={trips.filter((trip) => trip.status === 'active' || trip.status === 'arrived')}
+              activeTrips={trips.filter((trip) => (trip.status === 'active' || trip.status === 'arrived') && trip.hasLiveLocation)}
               height="300px"
             />
 

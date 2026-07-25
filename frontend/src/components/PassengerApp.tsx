@@ -18,7 +18,9 @@ export const PassengerApp: React.FC = () => {
 
   const selectedRoute = routes.find((route) => route.id === (selectedStop?.routeId || selectedRouteId)) || routes[0];
 
-  const liveTrips = trips.filter((trip) => trip.status === 'active' || trip.status === 'arrived');
+  const liveTrips = trips.filter((trip) => (
+    (trip.status === 'active' || trip.status === 'arrived') && trip.hasLiveLocation
+  ));
   // The selected route drives the ETA/checkpoint panel; the map receives the
   // complete fleet so passengers see buses travelling in both directions.
   const activeTrip = liveTrips.find(t => t.routeId === selectedRoute?.id);

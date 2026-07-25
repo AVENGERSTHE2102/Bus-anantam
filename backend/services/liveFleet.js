@@ -1,9 +1,17 @@
 const Trip = require('../models/Trip');
 
 const LIVE_FLEET_ROOM = 'live-fleet';
+// A phone with a dead app, lost network, or an abandoned shift must stop
+// appearing as a real vehicle. GTFS-Realtime recommends vehicle position data
+// no older than 90 seconds; keep the same operational boundary here.
+const LIVE_POSITION_MAX_AGE_MS = Number(process.env.LIVE_POSITION_MAX_AGE_MS || 90_000);
 
 async function getActiveFleetSnapshot() {
-  const trips = await Trip.find({ status: { $in: ['active', 'arrived'] } })
+  const trips = await Trip.find({
+    status: { $in: ['active', 'arrived'] },
+    'lastPosition.location.coordinates.0': { $exists: true },
+    'lastPosition.recordedAt': { $gte: new Date(Date.now() - LIVE_POSITION_MAX_AGE_MS) },
+  })
     .select('busId routeId driverId conductorId status startedAt endedAt lastPosition checkpointHistory passengerCount occupancyBand delayMinutes etaConfidence gpsFreshness')
     .lean();
 
@@ -27,4 +35,4 @@ async function emitLiveFleetSnapshot(target) {
   return trips;
 }
 
-module.exports = { LIVE_FLEET_ROOM, getActiveFleetSnapshot, emitLiveFleetSnapshot };
+module.exports = { LIVE_FLEET_ROOM, LIVE_POSITION_MAX_AGE_MS, getActiveFleetSnapshot, emitLiveFleetSnapshot };
