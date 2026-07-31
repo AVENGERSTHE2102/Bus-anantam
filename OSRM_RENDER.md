@@ -39,3 +39,19 @@ curl "${OSRM_BASE_URL}/route/v1/driving/73.117452,19.203479;73.090905,19.219640?
 
 The response should contain `"code":"Ok"`. The mobile app only uses the
 backend's public URL; it never connects to OSRM directly.
+
+## Continuous deployment
+
+Render Docker services support **Auto-Deploy** from their connected Git
+branch. Enable it for the OSRM service: a push that changes `Dockerfile.osrm`
+or an `osrm-data/dombivli.osrm*` graph file will build and deploy a new OSRM
+image.
+
+Changing a bus-stop coordinate does **not** require rebuilding the OSRM graph;
+the graph represents roads, not stops. After deploying the backend source, run
+this once from its Render Shell to update the database stops and its
+road-following route line using the existing internal OSRM service:
+
+```bash
+node scripts/syncDombivliRoute.js
+```

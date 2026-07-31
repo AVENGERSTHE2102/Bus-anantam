@@ -2,9 +2,15 @@ const jwt = require('jsonwebtoken');
 const { parseCookies } = require('../utils/cookies');
 const { recordLocation } = require('../services/liveTracking');
 const { LIVE_FLEET_ROOM, emitLiveFleetSnapshot } = require('../services/liveFleet');
+const { testAuthEnabled, getTestingUser } = require('../middleware/auth');
 
 function initSockets(io) {
-  io.use((socket, next) => {
+  io.use(async (socket, next) => {
+    if (testAuthEnabled()) {
+      socket.user = await getTestingUser(socket.handshake.auth?.testingRole || 'driver');
+      console.warn(`[socket] TEST BYPASS id=${socket.id} as=${socket.user.role}`);
+      return next();
+    }
     try {
       const token = socket.handshake.auth?.token || parseCookies(socket.handshake.headers.cookie).token;
       socket.user = jwt.verify(token, process.env.JWT_SECRET);
